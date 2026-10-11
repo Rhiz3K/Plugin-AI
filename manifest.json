@@ -1,7 +1,7 @@
 {
   "id": "ai",
   "name": "AI Assistant",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "An AI assistant that reads your setup and proposes changes for you to approve.",
   "author": {
     "name": "Termix"
@@ -96,13 +96,19 @@
         "id": "ai",
         "titleKey": "nav.ai",
         "icon": "Sparkles",
-        "openFrom": ["rail", "palette"]
+        "openFrom": [
+          "rail",
+          "palette"
+        ]
       },
       {
         "id": "ai-agents",
         "titleKey": "agents.title",
         "icon": "Bot",
-        "openFrom": ["host-context-menu", "palette"]
+        "openFrom": [
+          "host-context-menu",
+          "palette"
+        ]
       }
     ],
     "actions": [
@@ -121,37 +127,49 @@
         "name": "use",
         "titleKey": "permissions.use.title",
         "descriptionKey": "permissions.use.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "manage_providers",
         "titleKey": "permissions.manage_providers.title",
         "descriptionKey": "permissions.manage_providers.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "apply_proposals",
         "titleKey": "permissions.apply_proposals.title",
         "descriptionKey": "permissions.apply_proposals.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "services.use",
         "titleKey": "permissions.services.use.title",
         "descriptionKey": "permissions.services.use.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "secrets.share",
         "titleKey": "permissions.secrets.share.title",
         "descriptionKey": "permissions.secrets.share.description",
-        "defaultRoles": ["user"]
+        "defaultRoles": [
+          "user"
+        ]
       },
       {
         "name": "agents",
         "titleKey": "agents.permissionTitle",
         "descriptionKey": "agents.permissionDescription",
-        "defaultRoles": ["admin"]
+        "defaultRoles": [
+          "admin"
+        ]
       }
     ],
     "settings": {
@@ -209,8 +227,15 @@
         ]
       }
     },
-    "uses": ["terminal.sidePanel", "terminal.toolbar"]
+    "uses": [
+      "terminal.sidePanel",
+      "terminal.toolbar"
+    ]
   },
   "locales": "locales",
-  "platforms": ["linux", "win32", "darwin"]
+  "platforms": [
+    "linux",
+    "win32",
+    "darwin"
+  ]
 }
