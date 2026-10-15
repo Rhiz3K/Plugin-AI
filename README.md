@@ -6,6 +6,12 @@
 
 <p>An AI assistant that reads your setup and proposes changes for you to approve</p>
 
+<!-- VIDEO:START -->
+
+<a href="https://www.youtube.com/watch?v=aof6qLcmJ2E"><img src="https://img.shields.io/badge/Watch_the_demo-f59145?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch the demo on YouTube" /></a>
+
+<!-- VIDEO:END -->
+
 </div>
 
 <br />
