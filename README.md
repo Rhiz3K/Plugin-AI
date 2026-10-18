@@ -6,19 +6,13 @@
 
 <p>An AI assistant that reads your setup and proposes changes for you to approve</p>
 
-<!-- VIDEO:START -->
-
-<a href="https://www.youtube.com/watch?v=aof6qLcmJ2E"><img src="https://img.shields.io/badge/Watch_the_demo-f59145?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch the demo on YouTube" /></a>
-
-<!-- VIDEO:END -->
-
 </div>
 
 <br />
 
 ## Overview
 
-AI Assistant is a chat that can read your Termix setup and propose changes for you to approve. It can also run coding agents on your SSH hosts.
+AI Assistant is one assistant, floating on every page or full screen in the AI tab, that manages Termix as you through the bundled Termix CLI. Beside a terminal it reads your setup and proposes changes for you to approve. It can also run coding agents on your SSH hosts.
 
 Read the [docs](https://docs.termix.site/plugins/ai) to set it up and use it.
 
@@ -32,6 +26,8 @@ Read the [docs](https://docs.termix.site/plugins/ai) to set it up and use it.
 - Ask about a host right from its terminal
 - Works with Ollama, Anthropic, OpenAI, Google Gemini and any OpenAI compatible endpoint
 - Run Pi, OpenCode, Claude Code or Codex as a coding agent on an SSH host, using your own provider
+- One AI assistant, floating on every page (Ctrl+J) or full screen in the AI tab, that manages Termix as you through the bundled Termix CLI and opens views for you
+- With the `ai.ops.use` permission, it also runs shell commands across the hosts, folders, tags or fleets you select
 
 <br />
 
