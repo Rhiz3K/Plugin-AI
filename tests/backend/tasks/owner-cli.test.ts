@@ -85,6 +85,7 @@ async function start(
     expiresAt: new Date(Date.now() + 300_000).toISOString(),
   }));
   if (core.issue) ctx.auth.issueUserToken = issue;
+  else delete ctx.auth.issueUserToken;
   if (core.locale) ctx.users = { getLocale: core.locale };
   return { server, issue, envs };
 }
