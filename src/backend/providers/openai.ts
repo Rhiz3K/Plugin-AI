@@ -1,5 +1,9 @@
 import { assertOk, firstCount, joinUrl, readSseLines } from "./http.js";
-import { streamResponses, usesResponsesApi } from "./openai-responses.js";
+import {
+  cappedMaxTokens,
+  streamResponses,
+  usesResponsesApi,
+} from "./openai-responses.js";
 import { createThinkSplitter } from "./think-tags.js";
 import type {
   ChatChunk,
@@ -91,6 +95,22 @@ export const openAiAdapter: ProviderAdapter = {
       return;
     }
 
+    const advanced = config.advanced;
+    const maxTokens = cappedMaxTokens(advanced?.maxOutputTokens, request);
+    let temperature = advanced?.temperature;
+    // OpenAI's reasoning models take temperature only with effort none.
+    if (
+      temperature !== undefined &&
+      config.providerType === "openai" &&
+      advanced?.reasoningEffort !== undefined &&
+      advanced.reasoningEffort !== "none"
+    ) {
+      config.log?.warn(
+        `OpenAI skipped temperature for ${request.model} because reasoning effort is ${advanced.reasoningEffort}; temperature requires reasoning effort none.`,
+      );
+      temperature = undefined;
+    }
+
     let body: Record<string, unknown> = {
       model: request.model,
       messages: toOpenAiMessages(request),
@@ -100,11 +120,18 @@ export const openAiAdapter: ProviderAdapter = {
       stream_options: { include_usage: true },
       // OpenAI's own API refuses max_tokens for its reasoning models;
       // compatible servers (vLLM, LM Studio, Groq, OpenRouter) know max_tokens.
-      ...(request.maxTokens
+      ...(maxTokens
         ? config.providerType === "openai"
-          ? { max_completion_tokens: request.maxTokens }
-          : { max_tokens: request.maxTokens }
+          ? { max_completion_tokens: maxTokens }
+          : { max_tokens: maxTokens }
         : {}),
+      ...(advanced?.reasoningEffort !== undefined
+        ? { reasoning_effort: advanced.reasoningEffort }
+        : {}),
+      ...(advanced?.verbosity !== undefined
+        ? { verbosity: advanced.verbosity }
+        : {}),
+      ...(temperature !== undefined ? { temperature } : {}),
       ...(request.tools.length
         ? {
             tools: request.tools.map((tool) => ({
@@ -130,11 +157,20 @@ export const openAiAdapter: ProviderAdapter = {
     // A server can refuse an option it does not know, or OpenAI's newer
     // models refuse tools with their default reasoning effort. Ask again
     // without the option, or with reasoning off.
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       if (response.status !== 400 && response.status !== 422) break;
       const detail = await response.text().catch(() => "");
       if (/stream_options/i.test(detail) && body.stream_options) {
         const { stream_options: _dropped, ...rest } = body;
+        body = rest;
+      } else if (
+        /temperature/i.test(detail) &&
+        body.temperature !== undefined
+      ) {
+        config.log?.warn(
+          `OpenAI refused temperature for ${request.model}, continuing without it: ${detail.slice(0, 300)}`,
+        );
+        const { temperature: _dropped, ...rest } = body;
         body = rest;
       } else if (
         /reasoning_effort/i.test(detail) &&

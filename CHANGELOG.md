@@ -5,6 +5,7 @@
 ### Added
 
 - The assistant starts on the model you used last
+- Advanced settings for OpenAI and OpenAI compatible providers: endpoint (Auto, Responses API or Chat Completions), reasoning effort, reasoning summary, verbosity, max output tokens and temperature. Left on Default, nothing extra is sent
 
 ### Changed
 
