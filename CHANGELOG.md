@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+### Changed
+
+- The terminal assistant lives in the panel bar beside the SSH terminal on Termix 26.10.3 and later, so it can be resized, moved to a side or the bottom, and ordered with the other panels
+- Panel beside the terminal host setting and panel settings for where it opens and how big it is
+
 ## 1.2.1
 
 ### Fixed
