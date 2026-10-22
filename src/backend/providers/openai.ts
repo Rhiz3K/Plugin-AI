@@ -1,4 +1,5 @@
 import { assertOk, firstCount, joinUrl, readSseLines } from "./http.js";
+import { streamResponses, usesResponsesApi } from "./openai-responses.js";
 import { createThinkSplitter } from "./think-tags.js";
 import type {
   ChatChunk,
@@ -79,6 +80,16 @@ export const openAiAdapter: ProviderAdapter = {
       "Content-Type": "application/json",
     };
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+
+    if (usesResponsesApi(config)) {
+      yield* streamResponses(
+        config,
+        request,
+        joinUrl(baseFor(config), "responses"),
+        headers,
+      );
+      return;
+    }
 
     let body: Record<string, unknown> = {
       model: request.model,

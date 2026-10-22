@@ -10,6 +10,7 @@
 
 - The terminal assistant lives in the panel bar beside the SSH terminal on Termix 26.10.3 and later, so it can be resized, moved to a side or the bottom, and ordered with the other panels
 - Panel beside the terminal host setting and panel settings for where it opens and how big it is
+- OpenAI providers on api.openai.com use the Responses API, so reasoning models such as GPT-5.6 and GPT-6 keep their reasoning while calling tools. OpenAI compatible providers and custom base URLs still use Chat Completions
 
 ### Fixed
 

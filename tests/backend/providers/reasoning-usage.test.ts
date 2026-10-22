@@ -74,7 +74,12 @@ describe("openAiAdapter reasoning effort", () => {
       );
     const chunks = await collect(
       openAiAdapter.streamChat(
-        { fetch: providerFetch, providerType: "openai" },
+        {
+          fetch: providerFetch,
+          providerType: "openai",
+          // The mock speaks Chat Completions; official OpenAI uses Responses API.
+          baseUrl: "https://llm.example/v1",
+        },
         {
           ...REQUEST,
           model: "gpt-5.6-terra",

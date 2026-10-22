@@ -194,6 +194,8 @@ describe("chat stream", () => {
     const created = await server.request("POST", "/providers", {
       body: {
         providerType: "openai",
+        // The mock speaks Chat Completions; official OpenAI uses the Responses API.
+        baseUrl: "https://llm.example/v1",
         label: "Work",
         apiKey: "sk-test",
         defaultModel: "gpt-5",
