@@ -105,6 +105,7 @@ export async function providerConfig(
     providerType: provider.providerType as ProviderConfig["providerType"],
     baseUrl: provider.baseUrl,
     apiKey: provider.apiKey,
+    advanced: provider.advanced,
     fetch: createProviderFetch(
       ctx.fetch,
       await readPrivateAllowlist(ctx.settings),

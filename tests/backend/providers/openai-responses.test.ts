@@ -789,3 +789,562 @@ describe("openAiAdapter compatible chat requests", () => {
     },
   );
 });
+
+const RESPONSES_BODY = {
+  model: REQUEST.model,
+  instructions: REQUEST.system,
+  input: REQUEST.messages,
+  stream: true,
+  store: false,
+};
+
+describe("OpenAI advanced Responses routing", () => {
+  it.each([
+    {
+      label: "OpenAI forced to Responses at a proxy",
+      config: {
+        ...OPENAI,
+        baseUrl: "https://proxy.example/v1",
+        advanced: { endpoint: "responses" as const },
+      },
+      expected: true,
+    },
+    {
+      label: "a compatible provider forced to Responses",
+      config: {
+        ...COMPATIBLE,
+        advanced: { endpoint: "responses" as const },
+      },
+      expected: true,
+    },
+    {
+      label: "OpenAI forced to chat at the official URL",
+      config: {
+        ...OPENAI,
+        baseUrl: "https://api.openai.com/v1",
+        advanced: { endpoint: "chat" as const },
+      },
+      expected: false,
+    },
+    {
+      label: "a compatible provider forced to chat",
+      config: {
+        ...COMPATIBLE,
+        advanced: { endpoint: "chat" as const },
+      },
+      expected: false,
+    },
+    {
+      label: "OpenAI using auto at the official URL",
+      config: { ...OPENAI, advanced: { endpoint: "auto" as const } },
+      expected: true,
+    },
+    {
+      label: "OpenAI using auto at a proxy",
+      config: {
+        ...OPENAI,
+        baseUrl: COMPATIBLE.baseUrl,
+        advanced: { endpoint: "auto" as const },
+      },
+      expected: false,
+    },
+    {
+      label: "a compatible provider using auto at the official URL",
+      config: {
+        ...COMPATIBLE,
+        baseUrl: "https://api.openai.com/v1",
+        advanced: { endpoint: "auto" as const },
+      },
+      expected: false,
+    },
+  ])("routes $label", ({ config, expected }) => {
+    expect(usesResponsesApi(config)).toBe(expected);
+    expect(providerFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([OPENAI, COMPATIBLE])(
+    "posts to Responses when $providerType overrides its proxy endpoint",
+    async (config) => {
+      providerFetch.mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+
+      await collect(
+        openAiAdapter.streamChat(
+          {
+            ...config,
+            baseUrl: "https://proxy.example/v1",
+            advanced: { endpoint: "responses" },
+          },
+          REQUEST,
+        ),
+      );
+
+      expect(providerFetch).toHaveBeenCalledTimes(1);
+      expect(providerFetch.mock.calls[0][0]).toBe(
+        "https://proxy.example/v1/responses",
+      );
+      expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+        ...RESPONSES_BODY,
+        reasoning: { summary: "auto" },
+      });
+    },
+  );
+
+  it("posts to chat when OpenAI overrides the official Responses endpoint", async () => {
+    providerFetch.mockResolvedValueOnce(
+      streamingResponse([
+        sse({ choices: [{ delta: {}, finish_reason: "stop" }] }),
+        "data: [DONE]\n",
+      ]),
+    );
+
+    await collect(
+      openAiAdapter.streamChat(
+        {
+          ...OPENAI,
+          baseUrl: "https://api.openai.com/v1",
+          advanced: { endpoint: "chat" },
+        },
+        REQUEST,
+      ),
+    );
+
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    expect(providerFetch.mock.calls[0][0]).toBe(
+      "https://api.openai.com/v1/chat/completions",
+    );
+    expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+      model: REQUEST.model,
+      messages: [
+        { role: "system", content: REQUEST.system },
+        ...REQUEST.messages,
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+  });
+});
+
+describe("OpenAI advanced Responses requests", () => {
+  it("maps every advanced field and lets effort none use temperature", async () => {
+    providerFetch.mockResolvedValueOnce(
+      streamingResponse([sse({ type: "response.completed" })]),
+    );
+
+    await collect(
+      openAiAdapter.streamChat(
+        {
+          ...OPENAI,
+          advanced: {
+            endpoint: "responses",
+            reasoningEffort: "none",
+            reasoningSummary: "detailed",
+            verbosity: "high",
+            maxOutputTokens: 1024,
+            temperature: 0.25,
+          },
+        },
+        { ...REQUEST, maxTokens: 64, tools: [RUN_TOOL] },
+      ),
+    );
+
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+      ...RESPONSES_BODY,
+      reasoning: { effort: "none", summary: "detailed" },
+      text: { verbosity: "high" },
+      max_output_tokens: 64,
+      temperature: 0.25,
+      tools: [{ type: "function", ...RUN_TOOL, strict: false }],
+    });
+  });
+
+  it.each([undefined, {}])(
+    "keeps the legacy body with advanced settings %j",
+    async (advanced) => {
+      providerFetch.mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+
+      await collect(
+        openAiAdapter.streamChat(
+          { ...OPENAI, advanced },
+          { ...REQUEST, maxTokens: 512 },
+        ),
+      );
+
+      expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+        ...RESPONSES_BODY,
+        reasoning: { summary: "auto" },
+        max_output_tokens: 512,
+      });
+    },
+  );
+
+  it.each([
+    { effort: undefined, expected: RESPONSES_BODY },
+    {
+      effort: "high" as const,
+      expected: { ...RESPONSES_BODY, reasoning: { effort: "high" } },
+    },
+  ])("disables summaries with effort $effort", async ({ effort, expected }) => {
+    providerFetch.mockResolvedValueOnce(
+      streamingResponse([sse({ type: "response.completed" })]),
+    );
+
+    await collect(
+      openAiAdapter.streamChat(
+        {
+          ...OPENAI,
+          advanced: { reasoningSummary: "off", reasoningEffort: effort },
+        },
+        REQUEST,
+      ),
+    );
+
+    expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual(expected);
+  });
+
+  it.each([undefined, "none" as const, "high" as const])(
+    "sends temperature only when effort %s allows it and warns once when skipped",
+    async (reasoningEffort) => {
+      const warn = vi.fn();
+      providerFetch.mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+
+      await collect(
+        openAiAdapter.streamChat(
+          {
+            ...OPENAI,
+            log: { warn },
+            advanced: { reasoningEffort, temperature: 0 },
+          },
+          REQUEST,
+        ),
+      );
+
+      expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+        ...RESPONSES_BODY,
+        reasoning: {
+          ...(reasoningEffort !== undefined ? { effort: reasoningEffort } : {}),
+          summary: "auto",
+        },
+        ...(reasoningEffort === "high" ? {} : { temperature: 0 }),
+      });
+      if (reasoningEffort === "high") {
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(
+          `OpenAI skipped temperature for ${REQUEST.model} because reasoning effort is high; temperature requires reasoning effort none.`,
+        );
+      } else {
+        expect(warn).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each([
+    {
+      label: "uses a zero user limit below the request cap",
+      maxOutputTokens: 0,
+      maxTokens: 512,
+      expected: 0,
+    },
+    {
+      label: "uses a user limit below the request cap",
+      maxOutputTokens: 128,
+      maxTokens: 512,
+      expected: 128,
+    },
+    {
+      label: "caps a user limit above the request cap",
+      maxOutputTokens: 1024,
+      maxTokens: 512,
+      expected: 512,
+    },
+    {
+      label: "uses a user limit when the request cap is absent",
+      maxOutputTokens: 1024,
+      maxTokens: undefined,
+      expected: 1024,
+    },
+  ])("$label", async ({ maxOutputTokens, maxTokens, expected }) => {
+    providerFetch.mockResolvedValueOnce(
+      streamingResponse([sse({ type: "response.completed" })]),
+    );
+
+    await collect(
+      openAiAdapter.streamChat(
+        { ...OPENAI, advanced: { maxOutputTokens } },
+        maxTokens === undefined ? REQUEST : { ...REQUEST, maxTokens },
+      ),
+    );
+
+    expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+      ...RESPONSES_BODY,
+      reasoning: { summary: "auto" },
+      max_output_tokens: expected,
+    });
+  });
+});
+
+describe("OpenAI advanced Responses retries", () => {
+  it("preserves effort when summaries are refused and remembered", async () => {
+    const warn = vi.fn();
+    const detail = "reasoning.summary is unsupported";
+    const config = {
+      ...OPENAI,
+      log: { warn },
+      advanced: {
+        reasoningEffort: "high" as const,
+        reasoningSummary: "concise" as const,
+        verbosity: "low" as const,
+      },
+    };
+    providerFetch
+      .mockResolvedValueOnce(new Response(detail, { status: 400 }))
+      .mockImplementation(async () =>
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+
+    await collect(openAiAdapter.streamChat(config, REQUEST));
+    await collect(openAiAdapter.streamChat(config, REQUEST));
+
+    const withoutSummary = {
+      ...RESPONSES_BODY,
+      reasoning: { effort: "high" },
+      text: { verbosity: "low" },
+    };
+    expect(providerFetch).toHaveBeenCalledTimes(3);
+    expect(
+      providerFetch.mock.calls.map(([, options]) => JSON.parse(options.body)),
+    ).toEqual([
+      {
+        ...withoutSummary,
+        reasoning: { effort: "high", summary: "concise" },
+      },
+      withoutSummary,
+      withoutSummary,
+    ]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      `OpenAI refused reasoning summaries for ${REQUEST.model}, continuing without them (no Thinking block): ${detail}`,
+    );
+  });
+
+  it("surfaces rejected reasoning effort when summaries are off", async () => {
+    const warn = vi.fn();
+    providerFetch.mockResolvedValueOnce(
+      new Response("reasoning.effort is unsupported", { status: 400 }),
+    );
+
+    await expect(
+      collect(
+        openAiAdapter.streamChat(
+          {
+            ...OPENAI,
+            log: { warn },
+            advanced: { reasoningEffort: "high", reasoningSummary: "off" },
+          },
+          REQUEST,
+        ),
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: "OpenAI request failed (400): reasoning.effort is unsupported",
+    });
+
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(providerFetch.mock.calls[0][1].body)).toEqual({
+      ...RESPONSES_BODY,
+      reasoning: { effort: "high" },
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("surfaces rejected reasoning effort without retrying or remembering a summary fallback", async () => {
+    const warn = vi.fn();
+    const detail = "reasoning.effort 'xhigh' is not supported";
+    const config = {
+      ...OPENAI,
+      log: { warn },
+      advanced: { reasoningEffort: "xhigh" as const },
+    };
+    providerFetch
+      .mockResolvedValueOnce(new Response(detail, { status: 400 }))
+      .mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+
+    const result = collect(openAiAdapter.streamChat(config, REQUEST));
+
+    await expect(result).rejects.toBeInstanceOf(AiProviderError);
+    await expect(result).rejects.toMatchObject({
+      status: 400,
+      message: `OpenAI request failed (400): ${detail}`,
+    });
+    expect(providerFetch).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
+
+    await collect(openAiAdapter.streamChat(config, REQUEST));
+
+    expect(providerFetch).toHaveBeenCalledTimes(2);
+    expect(providerFetch.mock.calls.map(([url]) => url)).toEqual([
+      "https://api.openai.com/v1/responses",
+      "https://api.openai.com/v1/responses",
+    ]);
+    const expected = {
+      ...RESPONSES_BODY,
+      reasoning: { effort: "xhigh", summary: "auto" },
+    };
+    expect(
+      providerFetch.mock.calls.map(([, options]) => JSON.parse(options.body)),
+    ).toEqual([expected, expected]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 422])(
+    "retries a temperature %i once without changing other fields",
+    async (status) => {
+      const warn = vi.fn();
+      const detail = "temperature is not supported";
+      providerFetch
+        .mockResolvedValueOnce(new Response(detail, { status }))
+        .mockResolvedValueOnce(
+          streamingResponse([sse({ type: "response.completed" })]),
+        );
+
+      await collect(
+        openAiAdapter.streamChat(
+          {
+            ...OPENAI,
+            log: { warn },
+            advanced: {
+              reasoningEffort: "none",
+              reasoningSummary: "detailed",
+              verbosity: "medium",
+              maxOutputTokens: 256,
+              temperature: 0.5,
+            },
+          },
+          REQUEST,
+        ),
+      );
+
+      const withoutTemperature = {
+        ...RESPONSES_BODY,
+        reasoning: { effort: "none", summary: "detailed" },
+        text: { verbosity: "medium" },
+        max_output_tokens: 256,
+      };
+      expect(providerFetch).toHaveBeenCalledTimes(2);
+      expect(
+        providerFetch.mock.calls.map(([, options]) => JSON.parse(options.body)),
+      ).toEqual([
+        { ...withoutTemperature, temperature: 0.5 },
+        withoutTemperature,
+      ]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        `OpenAI refused temperature for ${REQUEST.model}, continuing without it: ${detail}`,
+      );
+    },
+  );
+
+  it.each([400, 422])(
+    "surfaces a second temperature %i mentioning reasoning without retrying again",
+    async (status) => {
+      const warn = vi.fn();
+      const config = {
+        ...OPENAI,
+        log: { warn },
+        advanced: { temperature: 0.5 },
+      };
+      const detail = "temperature is unsupported with reasoning models";
+      providerFetch.mockImplementation(
+        async () => new Response(detail, { status }),
+      );
+
+      await expect(
+        collect(openAiAdapter.streamChat(config, REQUEST)),
+      ).rejects.toMatchObject({
+        status,
+        message: `OpenAI request failed (${status}): ${detail}`,
+      });
+
+      expect(providerFetch).toHaveBeenCalledTimes(2);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(providerFetch.mock.calls[1][1].body)).toEqual({
+        ...RESPONSES_BODY,
+        reasoning: { summary: "auto" },
+      });
+
+      providerFetch.mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+      await collect(openAiAdapter.streamChat(config, REQUEST));
+
+      expect(providerFetch).toHaveBeenCalledTimes(3);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(providerFetch.mock.calls[2][1].body)).toEqual({
+        ...RESPONSES_BODY,
+        reasoning: { summary: "auto" },
+        temperature: 0.5,
+      });
+    },
+  );
+
+  it.each(["summary", "temperature"])(
+    "handles both fallbacks when %s is refused first",
+    async (first) => {
+      const warn = vi.fn();
+      const summaryFailure = () =>
+        new Response("reasoning.summary is unsupported", { status: 400 });
+      const temperatureFailure = () =>
+        new Response("temperature is unsupported", { status: 422 });
+      providerFetch
+        .mockResolvedValueOnce(
+          first === "summary" ? summaryFailure() : temperatureFailure(),
+        )
+        .mockResolvedValueOnce(
+          first === "summary" ? temperatureFailure() : summaryFailure(),
+        )
+        .mockResolvedValueOnce(
+          streamingResponse([sse({ type: "response.completed" })]),
+        );
+
+      await collect(
+        openAiAdapter.streamChat(
+          {
+            ...OPENAI,
+            log: { warn },
+            advanced: { reasoningEffort: "none", temperature: 0.5 },
+          },
+          REQUEST,
+        ),
+      );
+
+      const initial = {
+        ...RESPONSES_BODY,
+        reasoning: { effort: "none", summary: "auto" },
+        temperature: 0.5,
+      };
+      expect(providerFetch).toHaveBeenCalledTimes(3);
+      expect(
+        providerFetch.mock.calls.map(([, options]) => JSON.parse(options.body)),
+      ).toEqual([
+        initial,
+        first === "summary"
+          ? {
+              ...RESPONSES_BODY,
+              reasoning: { effort: "none" },
+              temperature: 0.5,
+            }
+          : { ...RESPONSES_BODY, reasoning: initial.reasoning },
+        { ...RESPONSES_BODY, reasoning: { effort: "none" } },
+      ]);
+      expect(warn).toHaveBeenCalledTimes(2);
+    },
+  );
+});

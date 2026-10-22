@@ -14,7 +14,24 @@ export function resetResponsesMemory(): void {
   reasoningDisabled.clear();
 }
 
+/** The user's output limit, never above a caller's own cap. */
+export function cappedMaxTokens(
+  limit: number | undefined,
+  request: Pick<ChatRequest, "maxTokens">,
+): number | undefined {
+  if (limit === undefined) return request.maxTokens;
+  return request.maxTokens ? Math.min(limit, request.maxTokens) : limit;
+}
+
 export function usesResponsesApi(config: ProviderConfig): boolean {
+  if (
+    config.providerType !== "openai" &&
+    config.providerType !== "openai_compatible"
+  ) {
+    return false;
+  }
+  if (config.advanced?.endpoint === "responses") return true;
+  if (config.advanced?.endpoint === "chat") return false;
   if (config.providerType !== "openai") return false;
   const base = config.baseUrl?.trim();
   if (!base) return true;
@@ -76,17 +93,39 @@ export async function* streamResponses(
   headers: Record<string, string>,
 ): AsyncIterable<ChatChunk> {
   const memoryKey = `${url}|${request.model}`;
+  const advanced = config.advanced ?? {};
+  const reasoning: Record<string, string> = {};
+  if (advanced.reasoningEffort !== undefined) {
+    reasoning.effort = advanced.reasoningEffort;
+  }
+  const summary = advanced.reasoningSummary ?? "auto";
+  if (summary !== "off" && !reasoningDisabled.has(memoryKey)) {
+    reasoning.summary = summary;
+  }
+  const maxTokens = cappedMaxTokens(advanced.maxOutputTokens, request);
+  const skipTemperature =
+    advanced.temperature !== undefined &&
+    config.providerType === "openai" &&
+    advanced.reasoningEffort !== undefined &&
+    advanced.reasoningEffort !== "none";
+  if (skipTemperature) {
+    config.log?.warn(
+      `OpenAI skipped temperature for ${request.model} because reasoning effort is ${advanced.reasoningEffort}; temperature requires reasoning effort none.`,
+    );
+  }
   let body: Record<string, unknown> = {
     model: request.model,
     instructions: request.system,
     input: toResponsesInput(request),
     stream: true,
     store: false,
-    ...(!reasoningDisabled.has(memoryKey)
-      ? { reasoning: { summary: "auto" } }
+    ...(Object.keys(reasoning).length ? { reasoning } : {}),
+    ...(maxTokens !== undefined ? { max_output_tokens: maxTokens } : {}),
+    ...(advanced.verbosity !== undefined
+      ? { text: { verbosity: advanced.verbosity } }
       : {}),
-    ...(request.maxTokens !== undefined
-      ? { max_output_tokens: request.maxTokens }
+    ...(advanced.temperature !== undefined && !skipTemperature
+      ? { temperature: advanced.temperature }
       : {}),
     ...(request.tools.length
       ? {
@@ -109,27 +148,49 @@ export async function* streamResponses(
     });
 
   let response = await post(body);
-  if (response.status === 400) {
+  let temperatureDropped = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (response.status !== 400 && response.status !== 422) break;
     const detail = await response.text().catch(() => "");
-    if (/reasoning|summar|encrypted/i.test(detail) && body.reasoning) {
+    const reasoning = body.reasoning as Record<string, string> | undefined;
+    const temperatureError = /temperature/i.test(detail);
+    if (temperatureError && body.temperature !== undefined) {
+      config.log?.warn(
+        `OpenAI refused temperature for ${request.model}, continuing without it: ${detail.slice(0, 300)}`,
+      );
+      const { temperature: _temperature, ...rest } = body;
+      body = rest;
+      temperatureDropped = true;
+    } else if (
+      response.status === 400 &&
+      !(temperatureError && temperatureDropped) &&
+      // An effort the model refuses is the user's to fix, not a summary issue.
+      !(advanced.reasoningEffort !== undefined && /effort/i.test(detail)) &&
+      /reasoning|summar|encrypted/i.test(detail) &&
+      reasoning?.summary !== undefined
+    ) {
       config.log?.warn(
         `OpenAI refused reasoning summaries for ${request.model}, continuing without them (no Thinking block): ${detail.slice(0, 300)}`,
       );
       reasoningDisabled.add(memoryKey);
-      const { reasoning: _dropped, ...rest } = body;
-      body = rest;
-      response = await post(body);
+      const { summary: _summary, ...remainingReasoning } = reasoning;
+      const { reasoning: _reasoning, ...rest } = body;
+      body = Object.keys(remainingReasoning).length
+        ? { ...rest, reasoning: remainingReasoning }
+        : rest;
     } else {
       response = new Response(detail, {
         status: response.status,
         statusText: response.statusText,
       });
+      break;
     }
+    response = await post(body);
   }
   await assertOk(response, "OpenAI");
 
   const calls: ToolCall[] = [];
-  const reasoning: unknown[] = [];
+  const reasoningBlocks: unknown[] = [];
   let usage: { input_tokens?: number; output_tokens?: number } | null = null;
   let stopReason: string | undefined;
   let previousReasoningKey: string | undefined;
@@ -167,7 +228,7 @@ export async function* streamResponses(
         break;
       case "response.output_item.done": {
         const item = frame.item;
-        if (item?.type === "reasoning") reasoning.push(item);
+        if (item?.type === "reasoning") reasoningBlocks.push(item);
         if (item?.type !== "function_call" || !item.name) break;
         let args: Record<string, unknown> = {};
         try {
@@ -208,7 +269,9 @@ export async function* streamResponses(
   }
 
   for (const call of calls) yield { type: "tool_call", call };
-  if (reasoning.length) yield { type: "reasoning_state", blocks: reasoning };
+  if (reasoningBlocks.length) {
+    yield { type: "reasoning_state", blocks: reasoningBlocks };
+  }
   if (usage) {
     yield {
       type: "usage",
