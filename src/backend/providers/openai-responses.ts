@@ -112,6 +112,9 @@ export async function* streamResponses(
   if (response.status === 400) {
     const detail = await response.text().catch(() => "");
     if (/reasoning|summar|encrypted/i.test(detail) && body.reasoning) {
+      config.log?.warn(
+        `OpenAI refused reasoning summaries for ${request.model}, continuing without them (no Thinking block): ${detail.slice(0, 300)}`,
+      );
       reasoningDisabled.add(memoryKey);
       const { reasoning: _dropped, ...rest } = body;
       body = rest;

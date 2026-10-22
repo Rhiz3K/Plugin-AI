@@ -100,6 +100,8 @@ export interface ProviderConfig {
   baseUrl?: string | null;
   apiKey?: string | null;
   fetch: ProviderFetch;
+  /** Reports provider fallbacks to the server log. */
+  log?: { warn(message: string): void };
 }
 
 /** What a provider says about one of its models; what it leaves out is unknown. */

@@ -119,6 +119,7 @@ export function registerAiRoutes(
       baseUrl: input.baseUrl,
       apiKey: input.apiKey,
       fetch: createProviderFetch(ctx.fetch, allowlist),
+      log: ctx.log,
     };
   }
 

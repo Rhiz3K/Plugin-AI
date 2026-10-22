@@ -502,6 +502,37 @@ describe("openAiAdapter Responses retries and errors", () => {
     },
   );
 
+  it("warns once when reasoning summaries are refused and remembers the fallback", async () => {
+    const warn = vi.fn();
+    const config = { ...OPENAI, log: { warn } };
+    const detail = "reasoning.summary is not supported for this model";
+    providerFetch
+      .mockResolvedValueOnce(new Response(detail, { status: 400 }))
+      .mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      )
+      .mockResolvedValueOnce(
+        streamingResponse([sse({ type: "response.completed" })]),
+      );
+
+    await collect(openAiAdapter.streamChat(config, REQUEST));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      `OpenAI refused reasoning summaries for ${REQUEST.model}, continuing without them (no Thinking block): ${detail}`,
+    );
+
+    await collect(openAiAdapter.streamChat(config, REQUEST));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(providerFetch).toHaveBeenCalledTimes(3);
+    expect(
+      providerFetch.mock.calls.map(
+        ([, options]) => JSON.parse(options.body).reasoning,
+      ),
+    ).toEqual([{ summary: "auto" }, undefined, undefined]);
+  });
+
   it("keeps reasoning fallback memory separate by base URL and model", async () => {
     providerFetch
       .mockResolvedValueOnce(
