@@ -98,7 +98,7 @@ export function taskResult(
 }
 
 export async function providerConfig(
-  ctx: Pick<PluginContext, "fetch" | "settings">,
+  ctx: Pick<PluginContext, "fetch" | "settings" | "log">,
   provider: AiProviderWithSecret,
 ): Promise<ProviderConfig> {
   return {
@@ -109,6 +109,7 @@ export async function providerConfig(
       ctx.fetch,
       await readPrivateAllowlist(ctx.settings),
     ),
+    log: ctx.log,
   };
 }
 
