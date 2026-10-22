@@ -80,7 +80,7 @@ export const openAiAdapter: ProviderAdapter = {
     };
     if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
 
-    const body = {
+    let body: Record<string, unknown> = {
       model: request.model,
       messages: toOpenAiMessages(request),
       stream: true,
@@ -116,17 +116,29 @@ export const openAiAdapter: ProviderAdapter = {
       });
 
     let response = await post(body);
-    if (response.status === 400 || response.status === 422) {
+    // A server can refuse an option it does not know, or OpenAI's newer
+    // models refuse tools with their default reasoning effort. Ask again
+    // without the option, or with reasoning off.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (response.status !== 400 && response.status !== 422) break;
       const detail = await response.text().catch(() => "");
-      if (/stream_options/i.test(detail)) {
+      if (/stream_options/i.test(detail) && body.stream_options) {
         const { stream_options: _dropped, ...rest } = body;
-        response = await post(rest);
+        body = rest;
+      } else if (
+        /reasoning_effort/i.test(detail) &&
+        /tools/i.test(detail) &&
+        !body.reasoning_effort
+      ) {
+        body = { ...body, reasoning_effort: "none" };
       } else {
         response = new Response(detail, {
           status: response.status,
           statusText: response.statusText,
         });
+        break;
       }
+      response = await post(body);
     }
 
     await assertOk(response, "OpenAI");

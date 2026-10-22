@@ -7,6 +7,10 @@
 - The terminal assistant lives in the panel bar beside the SSH terminal on Termix 26.10.3 and later, so it can be resized, moved to a side or the bottom, and ordered with the other panels
 - Panel beside the terminal host setting and panel settings for where it opens and how big it is
 
+### Fixed
+
+- OpenAI models that refuse tools with their default reasoning now work, by asking again with reasoning off
+
 ## 1.2.1
 
 ### Fixed
